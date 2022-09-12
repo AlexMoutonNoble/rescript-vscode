@@ -14,6 +14,17 @@ import * as os from "os";
 let tempFilePrefix = "rescript_format_file_" + process.pid + "_";
 let tempFileId = 0;
 
+const reFileLineCharacters = /File ".*", line (\d+), characters (\d+)-(\d+):/ 
+const reCode = /^  +([0-9]+| +|\.) (│|┆)/
+      //         ^^ indent
+      //           ^^^^^^^^^^^^^^^ gutter
+      //                           ^^^^^   separator
+      // swallow code display. Examples:
+      //   10 │
+      //    . │
+      //      │
+      //   10 ┆
+
 export let createFileInTempDir = (extension = "") => {
   let tempFileName = tempFilePrefix + tempFileId + extension;
   tempFileId = tempFileId + 1;
@@ -579,15 +590,33 @@ export let parseCompilerLogOutput = (
         content: [lines[i], lines[i + 1]],
       });
       i++;
-    } else if (/^  +([0-9]+| +|\.) (│|┆)/.test(line)) {
-      //         ^^ indent
-      //           ^^^^^^^^^^^^^^^ gutter
-      //                           ^^^^^   separator
-      // swallow code display. Examples:
-      //   10 │
-      //    . │
-      //      │
-      //   10 ┆
+		} else if(reFileLineCharacters.exec(line)) {
+			const content = [line];
+
+			let j = i + 1;
+			while( j < lines.length && reCode.exec(lines[j]) ) {
+				// content.push(lines[j]);
+				j = j+1;
+			}
+
+			const severity = 
+				j < lines.length && lines[j].startsWith("Warning")
+				? t.DiagnosticSeverity.Warning
+				: j < lines.length && lines[j].startsWith("Error")
+					? t.DiagnosticSeverity.Error
+					: null;
+
+			if( severity ) {
+				parsedDiagnostics.push({
+					code: undefined,
+					severity: severity,
+					tag: undefined,
+					content: [line, lines[j]],
+				});
+				i = j;
+			}
+    } else if (reCode.test(line)) {
+			// Skip code lines
     } else if (line.startsWith("  ")) {
       // part of the actual diagnostics message
       if (parsedDiagnostics[parsedDiagnostics.length - 1] == null) {
